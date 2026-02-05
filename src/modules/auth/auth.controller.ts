@@ -17,6 +17,8 @@ import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { CurrentUser } from './decorators/current-user.decorator';
 import type { User } from '@prisma/client';
 import {
+	ApiBearerAuth,
+	ApiSecurity,
 	ApiResponse,
 	ApiUnauthorizedResponse,
 	ApiConflictResponse,
@@ -96,6 +98,8 @@ export class AuthController {
 		return this.authService.logout(dto.refreshToken);
 	}
 
+	@ApiBearerAuth('JWT-auth')
+	@ApiSecurity('OAuth2-login')
 	@ApiResponse({ status: 200, description: 'Logout realizado com sucesso' })
 	@UseGuards(JwtAuthGuard)
 	@Post('logout-all')
@@ -104,6 +108,8 @@ export class AuthController {
 		return this.authService.logoutAll(user.id);
 	}
 
+	@ApiBearerAuth('JWT-auth')
+	@ApiSecurity('OAuth2-login')
 	@ApiResponse({ status: 200, description: 'Informações do usuário atual' })
 	@ApiUnauthorizedResponse({
 		description: 'Token JWT inválido/revogado/expirado',
