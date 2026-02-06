@@ -47,6 +47,8 @@ describe('AuthService', () => {
 		password: '', // Será definido com hash
 		name: 'Test User',
 		role: 'USER' as const,
+		organizationId: null,
+		isOrgLeader: false,
 		isActive: true,
 		createdAt: new Date(),
 		updatedAt: new Date(),
@@ -86,26 +88,20 @@ describe('AuthService', () => {
 			expect(result?.email).toBe('test@example.com');
 		});
 
-		it('deve retornar null se usuário não existe', async () => {
+		it('deve lançar UnauthorizedException se usuário não existe', async () => {
 			mockUsersService.findByEmail.mockResolvedValue(null);
 
-			const result = await service.validateUser(
-				'naoexiste@example.com',
-				'qualquer',
-			);
-
-			expect(result).toBeNull();
+			await expect(
+				service.validateUser('naoexiste@example.com', 'qualquer'),
+			).rejects.toThrow(UnauthorizedException);
 		});
 
-		it('deve retornar null se senha incorreta', async () => {
+		it('deve lançar UnauthorizedException se senha incorreta', async () => {
 			mockUsersService.findByEmail.mockResolvedValue(mockUser);
 
-			const result = await service.validateUser(
-				'test@example.com',
-				'senha-errada',
-			);
-
-			expect(result).toBeNull();
+			await expect(
+				service.validateUser('test@example.com', 'senha-errada'),
+			).rejects.toThrow(UnauthorizedException);
 		});
 
 		it('deve lançar erro se usuário inativo', async () => {

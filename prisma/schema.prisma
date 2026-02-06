@@ -6,7 +6,6 @@
 
 generator client {
   provider = "prisma-client-js"
-  output   = "./generated/client"
 }
 
 datasource db {
@@ -17,21 +16,41 @@ datasource db {
 enum Role {
   USER
   ADMIN
+  SYSTEM // Master role for system administration
+}
+
+model Organization {
+  id          String   @id @default(uuid())
+  name        String
+  slug        String   @unique
+  description String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  deletedAt   DateTime?
+
+  // Relationships
+  users    User[]
+  licenses License[]
+
+  @@map("organizations")
 }
 
 model User {
-  id            String         @id @default(uuid())
-  email         String         @unique
-  name          String?
-  password      String
-  role          Role           @default(USER)
-  createdAt     DateTime       @default(now())
-  updatedAt     DateTime       @updatedAt
-  isActive      Boolean        @default(true)
-  refreshTokens RefreshToken[]
+  id             String        @id @default(uuid())
+  email          String        @unique
+  name           String?
+  password       String
+  role           Role          @default(USER)
+  organizationId String?
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+  isOrgLeader    Boolean       @default(false) // Leader of the organization
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  isActive       Boolean       @default(true)
+  refreshTokens  RefreshToken[]
 
-  licenses License[]
-  seats    Seat[]
+  seats Seat[]
 
   @@map("users")
 }
@@ -49,18 +68,20 @@ model RefreshToken {
 }
 
 model License {
-  id          String   @id @default(uuid())
-  key         String   @unique
-  ownerId     String
-  owner       User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
-  name        String
-  description String?
-  licenseTypeId String
-  licenseType LicenseType @relation(fields: [licenseTypeId], references: [id], onDelete: Cascade)
-  isActive    Boolean  @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  deletedAt   DateTime?
+  id             String       @id @default(uuid())
+  key            String       @unique
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  name           String
+  description    String?
+  licenseTypeId  String
+  licenseType    LicenseType  @relation(fields: [licenseTypeId], references: [id], onDelete: Cascade)
+  expiresAt      DateTime?    // Expiration date for the license
+  features       Json?        // JSON with feature flags/limits (e.g., { aiTokenLimit: 10000 })
+  isActive       Boolean      @default(true)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  deletedAt      DateTime?
 
   seats Seat[]
 
