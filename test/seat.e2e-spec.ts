@@ -34,54 +34,129 @@ describe('SeatController (e2e)', () => {
 
 		prisma = app.get(PrismaService);
 
-		// Login como ADMIN
+		// 1. Criar Organização de Teste
+		const org = await prisma.organization.create({
+			data: {
+				name: `Seat E2E Org ${Date.now()}`,
+				slug: `seat-e2e-org-${Date.now()}`,
+				isActive: true,
+			},
+		});
+
+		// 2. Criar Tipo de Licença de Teste
+		const licenseType = await prisma.licenseType.create({
+			data: {
+				name: `Seat E2E Type ${Date.now()}`,
+				description: 'E2E Test Type',
+				price: 100,
+				duration: 30,
+				isPerSeat: true,
+				maxSeats: 5,
+				isActive: true,
+			},
+		});
+
+		// 3. Criar Licença de Teste
+		const license = await prisma.license.create({
+			data: {
+				name: `Seat E2E License ${Date.now()}`,
+				key: `LIC-SEAT-E2E-${Date.now()}`,
+				organizationId: org.id,
+				licenseTypeId: licenseType.id,
+				isActive: true,
+				expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+			},
+		});
+		testLicenseId = license.id;
+
+		// 4. Criar e Logar ADMIN de Teste
+		const adminEmail = `seat-admin-${Date.now()}@seat.test`;
+		await request(app.getHttpServer()).post('/api/v1/auth/register').send({
+			email: adminEmail,
+			password: 'AdminPass@123',
+			name: 'Seat Admin User',
+		});
+
+		// Forçar role ADMIN no banco
+		await prisma.user.updateMany({
+			where: { email: adminEmail },
+			data: { role: 'ADMIN', isActive: true },
+		});
+
 		const adminLogin = await request(app.getHttpServer())
 			.post('/api/v1/auth/login')
 			.send({
-				email: 'admin@admin.local',
-				password: 'admin123',
+				email: adminEmail,
+				password: 'AdminPass@123',
 			});
 
-		if (adminLogin.status === 201) {
+		if (adminLogin.status === 201 || adminLogin.status === 200) {
 			adminToken = adminLogin.body.access_token;
+		} else {
+			console.error('Admin login failed:', adminLogin.body);
 		}
 
-		// Criar usuário de teste
-		const userEmail = `seat-test-${Date.now()}@example.com`;
-		const registerRes = await request(app.getHttpServer())
+		// 5. Criar e Logar User Comum
+		const userEmail = `seat-user-${Date.now()}@seat.test`;
+		const userRegister = await request(app.getHttpServer())
 			.post('/api/v1/auth/register')
 			.send({
 				email: userEmail,
-				password: 'SecurePass@123',
-				name: 'Seat Test User',
+				password: 'UserPass@123',
+				name: 'Seat Normal User',
 			});
 
-		if (registerRes.status === 201) {
-			userToken = registerRes.body.access_token;
-			testUserId = registerRes.body.user.id;
+		if (userRegister.status === 201) {
+			userToken = userRegister.body.access_token;
+			testUserId = userRegister.body.user.id;
+		} else {
+			console.error('User register failed:', userRegister.body);
 		}
-
-		// Buscar licença do seed para testes
-		const license = await prisma.license.findFirst({
-			where: { isActive: true, deletedAt: null },
-		});
-		if (license) testLicenseId = license.id;
 	});
 
 	afterAll(async () => {
-		// Limpar seats de teste
+		// Cleanup order: Seats -> License -> LicenseType -> Organization -> Users
 		if (createdSeatId) {
 			await prisma.seat
-				.delete({
-					where: { id: createdSeatId },
-				})
+				.deleteMany({ where: { licenseId: testLicenseId } })
 				.catch(() => {});
 		}
 
-		// Limpar usuários de teste
+		if (testLicenseId) {
+			await prisma.license
+				.delete({ where: { id: testLicenseId } })
+				.catch(() => {});
+		}
+
+		// Cleanup Users (Admin & User)
 		await prisma.user.deleteMany({
-			where: { email: { contains: 'seat-test-' } },
+			where: { email: { contains: '@seat.test' } },
 		});
+
+		// Note: We leave LicenseType and Org cleanup for simple "deleteMany" or specific ID if tracked,
+		// but since we created them with unique names, we can delete by finding them or just rely on test DB reset policies.
+		// For robustness, let's try to verify if we can delete the ones we created if we tracked their IDs.
+		// Since I didn't save orgId/typeId in let vars in the previous step (oops), I'll add them to the let vars in a separate fix
+		// or just query them here if needed. Ideally, let's just clean users for now which is the main noise.
+
+		// Actually, let's delete strictly what we created if we have IDs.
+		// Expanding cleanup:
+		const orgs = await prisma.organization.findMany({
+			where: { name: { contains: 'Seat E2E Org' } },
+		});
+		for (const o of orgs) {
+			// Delete related licenses first just in case
+			await prisma.license.deleteMany({
+				where: { organizationId: o.id },
+			});
+			await prisma.organization
+				.delete({ where: { id: o.id } })
+				.catch(() => {});
+		}
+
+		await prisma.licenseType
+			.deleteMany({ where: { name: { contains: 'Seat E2E Type' } } })
+			.catch(() => {});
 
 		await app.close();
 	});

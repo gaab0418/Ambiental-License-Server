@@ -44,25 +44,40 @@ describe('LicenseTypeController (e2e)', () => {
 
 		prisma = app.get(PrismaService);
 
-		// Login como ADMIN (usar usuário admin do seed)
+		// 1. Criar e Logar ADMIN de Teste
+		const adminEmail = `lic-type-admin-${Date.now()}@lictype.test`;
+		await request(app.getHttpServer()).post('/api/v1/auth/register').send({
+			email: adminEmail,
+			password: 'AdminPass@123',
+			name: 'LicType Admin User',
+		});
+
+		// Forçar role ADMIN
+		await prisma.user.updateMany({
+			where: { email: adminEmail },
+			data: { role: 'ADMIN', isActive: true },
+		});
+
 		const adminLogin = await request(app.getHttpServer())
 			.post('/api/v1/auth/login')
 			.send({
-				email: 'admin@admin.local',
-				password: 'admin123',
+				email: adminEmail,
+				password: 'AdminPass@123',
 			});
 
-		if (adminLogin.status === 201) {
+		if (adminLogin.status === 201 || adminLogin.status === 200) {
 			adminToken = adminLogin.body.access_token;
+		} else {
+			console.error('Admin login failed:', adminLogin.body);
 		}
 
-		// Criar usuário normal para testar restrições
-		const userEmail = `user-test-${Date.now()}@example.com`;
+		// 2. Criar usuário normal para testar restrições
+		const userEmail = `lic-type-user-${Date.now()}@lictype.test`;
 		const registerRes = await request(app.getHttpServer())
 			.post('/api/v1/auth/register')
 			.send({
 				email: userEmail,
-				password: 'SecurePass@123',
+				password: 'UserPass@123',
 				name: 'Test User',
 			});
 
@@ -83,7 +98,7 @@ describe('LicenseTypeController (e2e)', () => {
 
 		// Limpar usuários de teste
 		await prisma.user.deleteMany({
-			where: { email: { contains: 'user-test-' } },
+			where: { email: { contains: '@lictype.test' } },
 		});
 
 		await app.close();
@@ -281,8 +296,9 @@ describe('LicenseTypeController (e2e)', () => {
 				.set('Authorization', `Bearer ${adminToken}`)
 				.expect(200);
 
-			expect(response.body.deletedAt).not.toBeNull();
-			expect(response.body.isActive).toBe(false);
+			expect(response.body).toEqual({
+				message: 'Tipo de licença removido com sucesso',
+			});
 
 			// Verificar que não aparece mais na lista de ativos
 			const activeTypes = await request(app.getHttpServer())

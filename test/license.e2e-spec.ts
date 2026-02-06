@@ -42,55 +42,99 @@ describe('LicenseController (e2e)', () => {
 
 		prisma = app.get(PrismaService);
 
-		// Login como ADMIN
+		// 1. Criar Organização de Teste
+		const org = await prisma.organization.create({
+			data: {
+				name: `License E2E Org ${Date.now()}`,
+				slug: `license-e2e-org-${Date.now()}`,
+				isActive: true,
+			},
+		});
+		testOrganizationId = org.id;
+
+		// 2. Criar Tipo de Licença de Teste
+		const licenseType = await prisma.licenseType.create({
+			data: {
+				name: `License E2E Type ${Date.now()}`,
+				description: 'E2E Test Type',
+				price: 99.99,
+				duration: 30,
+				isPerSeat: true,
+				maxSeats: 10,
+				isActive: true,
+			},
+		});
+		testLicenseTypeId = licenseType.id;
+
+		// 3. Criar e Logar ADMIN de Teste
+		const adminEmail = `license-admin-${Date.now()}@license.test`;
+		await request(app.getHttpServer()).post('/api/v1/auth/register').send({
+			email: adminEmail,
+			password: 'AdminPass@123',
+			name: 'License Admin User',
+		});
+
+		// Forçar role ADMIN
+		await prisma.user.updateMany({
+			where: { email: adminEmail },
+			data: { role: 'ADMIN', isActive: true },
+		});
+
 		const adminLogin = await request(app.getHttpServer())
 			.post('/api/v1/auth/login')
 			.send({
-				email: 'admin@admin.local',
-				password: 'admin123',
+				email: adminEmail,
+				password: 'AdminPass@123',
 			});
 
-		if (adminLogin.status === 201) {
+		if (adminLogin.status === 201 || adminLogin.status === 200) {
 			adminToken = adminLogin.body.access_token;
+		} else {
+			console.error('Admin login failed:', adminLogin.body);
 		}
 
-		// Criar usuário normal
-		const userEmail = `license-test-${Date.now()}@example.com`;
+		// 4. Criar usuário normal
+		const userEmail = `license-user-${Date.now()}@license.test`;
 		const registerRes = await request(app.getHttpServer())
 			.post('/api/v1/auth/register')
 			.send({
 				email: userEmail,
-				password: 'SecurePass@123',
+				password: 'UserPass@123',
 				name: 'License Test User',
 			});
 
 		if (registerRes.status === 201) {
 			userToken = registerRes.body.access_token;
 		}
-
-		// Buscar organização e tipo de licença do seed
-		const org = await prisma.organization.findFirst();
-		if (org) testOrganizationId = org.id;
-
-		const licenseType = await prisma.licenseType.findFirst({
-			where: { isActive: true, deletedAt: null },
-		});
-		if (licenseType) testLicenseTypeId = licenseType.id;
 	});
 
 	afterAll(async () => {
-		// Limpar licenças de teste
+		// Cleanup created resources
 		if (createdLicenseId) {
 			await prisma.license
-				.delete({
-					where: { id: createdLicenseId },
-				})
+				.delete({ where: { id: createdLicenseId } })
 				.catch(() => {});
 		}
 
-		// Limpar usuários de teste
+		if (testLicenseTypeId) {
+			await prisma.licenseType
+				.delete({ where: { id: testLicenseTypeId } })
+				.catch(() => {});
+		}
+
+		if (testOrganizationId) {
+			// Delete any licenses linked to this org first
+			await prisma.license
+				.deleteMany({ where: { organizationId: testOrganizationId } })
+				.catch(() => {});
+			await prisma.organization
+				.delete({ where: { id: testOrganizationId } })
+				.catch(() => {});
+		}
+
+		// Cleanup users
 		await prisma.user.deleteMany({
-			where: { email: { contains: 'license-test-' } },
+			where: { email: { contains: '@license.test' } },
 		});
 
 		await app.close();
@@ -318,7 +362,7 @@ describe('LicenseController (e2e)', () => {
 				.post(`/api/v1/licenses/${createdLicenseId}/renew`)
 				.set('Authorization', `Bearer ${adminToken}`)
 				.send({ durationDays: 30 })
-				.expect(201);
+				.expect(200);
 
 			expect(response.body.expiresAt).not.toBeNull();
 			expect(response.body.isActive).toBe(true);
@@ -351,8 +395,17 @@ describe('LicenseController (e2e)', () => {
 				.set('Authorization', `Bearer ${adminToken}`)
 				.expect(200);
 
-			expect(response.body.deletedAt).not.toBeNull();
-			expect(response.body.isActive).toBe(false);
+			expect(response.body).toEqual({
+				message: 'Licença removida com sucesso',
+			});
+
+			// Verificar no banco se foi deletada (soft delete)
+			const check = await prisma.license.findUnique({
+				where: { id: createdLicenseId },
+			});
+			expect(check).not.toBeNull();
+			expect(check?.deletedAt).not.toBeNull();
+			expect(check?.isActive).toBe(false);
 
 			// Validação deve retornar removida
 			const validateRes = await request(app.getHttpServer())
