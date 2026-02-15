@@ -1,60 +1,68 @@
-import {
-	Injectable,
-	NotFoundException,
-	BadRequestException,
-} from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../shared/prisma/prisma.service';
 import { CreateSeatDto } from './dto/create-seat.dto';
-
-export interface SeatPaginationParams {
-	page?: number;
-	limit?: number;
-	isActive?: boolean;
-}
-
-export interface PaginatedResult<T> {
-	data: T[];
-	meta: {
-		total: number;
-		page: number;
-		limit: number;
-		totalPages: number;
-	};
-}
+import { SeatAllocationCode } from './license.enums';
+import {
+	SeatAllocationResult,
+	SeatPaginationParams,
+	PaginatedResult,
+} from './license.interfaces';
 
 @Injectable()
 export class SeatService {
 	constructor(private readonly prisma: PrismaService) {}
 
-	async allocate(data: CreateSeatDto) {
-		// Verify license exists and is active
+	async allocate(data: CreateSeatDto): Promise<SeatAllocationResult> {
+		// Verify license exists
 		const license = await this.prisma.license.findUnique({
-			where: { id: data.licenseId, deletedAt: null },
+			where: { id: data.licenseId },
 			include: {
 				licenseType: true,
-				_count: { select: { seats: true } },
+				_count: { select: { seats: { where: { deletedAt: null } } } },
 			},
 		});
 
 		if (!license) {
-			throw new NotFoundException('Licença não encontrada');
+			return {
+				success: false,
+				reason: 'Licença não encontrada',
+				code: SeatAllocationCode.LICENSE_NOT_FOUND,
+			};
+		}
+
+		if (license.deletedAt) {
+			return {
+				success: false,
+				reason: 'Licença foi removida',
+				code: SeatAllocationCode.LICENSE_DELETED,
+			};
 		}
 
 		if (!license.isActive) {
-			throw new BadRequestException('Licença está inativa');
+			return {
+				success: false,
+				reason: 'Licença está inativa',
+				code: SeatAllocationCode.LICENSE_INACTIVE,
+			};
 		}
 
 		// Check if license is expired
 		if (license.expiresAt && new Date(license.expiresAt) < new Date()) {
-			throw new BadRequestException('Licença expirada');
+			return {
+				success: false,
+				reason: 'Licença expirada',
+				code: SeatAllocationCode.LICENSE_EXPIRED,
+			};
 		}
 
 		// Check seat limit if applicable
 		if (license.licenseType.isPerSeat && license.licenseType.maxSeats) {
 			if (license._count.seats >= license.licenseType.maxSeats) {
-				throw new BadRequestException(
-					`Limite de seats atingido (${license.licenseType.maxSeats})`,
-				);
+				return {
+					success: false,
+					reason: `Limite de seats atingido (${license.licenseType.maxSeats})`,
+					code: SeatAllocationCode.LICENSE_SEATS_EXCEEDED,
+				};
 			}
 		}
 
@@ -64,7 +72,11 @@ export class SeatService {
 		});
 
 		if (!user) {
-			throw new NotFoundException('Usuário não encontrado');
+			return {
+				success: false,
+				reason: 'Usuário não encontrado',
+				code: SeatAllocationCode.SEAT_USER_NOT_FOUND,
+			};
 		}
 
 		// Check if user already has a seat in this license
@@ -77,12 +89,14 @@ export class SeatService {
 		});
 
 		if (existingSeat) {
-			throw new BadRequestException(
-				'Usuário já possui um seat nesta licença',
-			);
+			return {
+				success: false,
+				reason: 'Usuário já possui um seat nesta licença',
+				code: SeatAllocationCode.SEAT_ALREADY_EXISTS,
+			};
 		}
 
-		return this.prisma.seat.create({
+		const seat = await this.prisma.seat.create({
 			data: {
 				licenseId: data.licenseId!,
 				userId: data.userId,
@@ -98,6 +112,12 @@ export class SeatService {
 				},
 			},
 		});
+
+		return {
+			success: true,
+			seat,
+			code: SeatAllocationCode.SEAT_ALLOCATED,
+		};
 	}
 
 	async findByLicense(

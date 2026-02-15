@@ -6,32 +6,13 @@ import {
 import { PrismaService } from '../../shared/prisma/prisma.service';
 import { CreateLicenseDto } from './dto/create-license.dto';
 import { UpdateLicenseDto } from './dto/update-license.dto';
+import { LicenseValidationCode } from './license.enums';
+import {
+	LicensePaginationParams,
+	LicenseValidationResult,
+	PaginatedResult,
+} from './license.interfaces';
 import * as crypto from 'crypto';
-
-export interface LicensePaginationParams {
-	page?: number;
-	limit?: number;
-	search?: string;
-	isActive?: boolean;
-	organizationId?: string;
-	licenseTypeId?: string;
-}
-
-export interface PaginatedResult<T> {
-	data: T[];
-	meta: {
-		total: number;
-		page: number;
-		limit: number;
-		totalPages: number;
-	};
-}
-
-export interface LicenseValidationResult {
-	isValid: boolean;
-	license?: any;
-	reason?: string;
-}
 
 @Injectable()
 export class LicenseService {
@@ -244,6 +225,7 @@ export class LicenseService {
 			return {
 				isValid: false,
 				reason: 'Licença não encontrada',
+				code: LicenseValidationCode.LICENSE_NOT_FOUND,
 			};
 		}
 
@@ -251,6 +233,7 @@ export class LicenseService {
 			return {
 				isValid: false,
 				reason: 'Licença foi removida',
+				code: LicenseValidationCode.LICENSE_DELETED,
 			};
 		}
 
@@ -258,6 +241,7 @@ export class LicenseService {
 			return {
 				isValid: false,
 				reason: 'Licença está inativa',
+				code: LicenseValidationCode.LICENSE_INACTIVE,
 			};
 		}
 
@@ -265,6 +249,7 @@ export class LicenseService {
 			return {
 				isValid: false,
 				reason: 'Organização está inativa',
+				code: LicenseValidationCode.LICENSE_ORGANIZATION_INACTIVE,
 			};
 		}
 
@@ -277,6 +262,7 @@ export class LicenseService {
 					name: license.name,
 					expiresAt: license.expiresAt,
 				},
+				code: LicenseValidationCode.LICENSE_EXPIRED,
 			};
 		}
 
@@ -292,6 +278,7 @@ export class LicenseService {
 					? license.licenseType.maxSeats - license._count.seats
 					: null,
 			},
+			code: LicenseValidationCode.LICENSE_VALIDATED,
 		};
 	}
 

@@ -1,7 +1,8 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { SeatService } from './seat.service';
 import { PrismaService } from '../../shared/prisma/prisma.service';
-import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { NotFoundException } from '@nestjs/common';
+import { SeatAllocationCode } from './license.enums';
 
 const mockPrismaService = {
 	license: {
@@ -93,86 +94,76 @@ describe('SeatService', () => {
 
 			const result = await service.allocate(allocateDto);
 
-			expect(result).toEqual(mockSeat);
+			expect(result.success).toBe(true);
+			expect(result.code).toBe(SeatAllocationCode.SEAT_ALLOCATED);
+			expect(result.seat).toEqual(mockSeat);
 			expect(mockPrismaService.seat.create).toHaveBeenCalled();
 		});
 
-		it('deve lançar NotFoundException se licença não existe', async () => {
+		it('deve retornar LICENSE_NOT_FOUND se licença não existe', async () => {
 			mockPrismaService.license.findUnique.mockResolvedValue(null);
 
-			await expect(service.allocate(allocateDto)).rejects.toThrow(
-				NotFoundException,
-			);
-			await expect(service.allocate(allocateDto)).rejects.toThrow(
-				'Licença não encontrada',
-			);
+			const result = await service.allocate(allocateDto);
+
+			expect(result.success).toBe(false);
+			expect(result.code).toBe(SeatAllocationCode.LICENSE_NOT_FOUND);
 		});
 
-		it('deve lançar BadRequestException se licença está inativa', async () => {
+		it('deve retornar LICENSE_INACTIVE se licença está inativa', async () => {
 			mockPrismaService.license.findUnique.mockResolvedValue({
 				...mockLicense,
 				isActive: false,
 			});
 
-			await expect(service.allocate(allocateDto)).rejects.toThrow(
-				BadRequestException,
-			);
-			await expect(service.allocate(allocateDto)).rejects.toThrow(
-				'Licença está inativa',
-			);
+			const result = await service.allocate(allocateDto);
+
+			expect(result.success).toBe(false);
+			expect(result.code).toBe(SeatAllocationCode.LICENSE_INACTIVE);
 		});
 
-		it('deve lançar BadRequestException se licença expirou', async () => {
+		it('deve retornar LICENSE_EXPIRED se licença expirou', async () => {
 			mockPrismaService.license.findUnique.mockResolvedValue({
 				...mockLicense,
 				expiresAt: new Date(Date.now() - 86400000), // ontem
 			});
 
-			await expect(service.allocate(allocateDto)).rejects.toThrow(
-				BadRequestException,
-			);
-			await expect(service.allocate(allocateDto)).rejects.toThrow(
-				'Licença expirada',
-			);
+			const result = await service.allocate(allocateDto);
+
+			expect(result.success).toBe(false);
+			expect(result.code).toBe(SeatAllocationCode.LICENSE_EXPIRED);
 		});
 
-		it('deve lançar BadRequestException se limite de seats atingido', async () => {
+		it('deve retornar LICENSE_SEATS_EXCEEDED se limite de seats atingido', async () => {
 			mockPrismaService.license.findUnique.mockResolvedValue({
 				...mockLicense,
 				_count: { seats: 5 }, // igual ao maxSeats
 			});
 
-			await expect(service.allocate(allocateDto)).rejects.toThrow(
-				BadRequestException,
-			);
-			await expect(service.allocate(allocateDto)).rejects.toThrow(
-				'Limite de seats atingido',
-			);
+			const result = await service.allocate(allocateDto);
+
+			expect(result.success).toBe(false);
+			expect(result.code).toBe(SeatAllocationCode.LICENSE_SEATS_EXCEEDED);
 		});
 
-		it('deve lançar NotFoundException se usuário não existe', async () => {
+		it('deve retornar SEAT_USER_NOT_FOUND se usuário não existe', async () => {
 			mockPrismaService.license.findUnique.mockResolvedValue(mockLicense);
 			mockPrismaService.user.findUnique.mockResolvedValue(null);
 
-			await expect(service.allocate(allocateDto)).rejects.toThrow(
-				NotFoundException,
-			);
-			await expect(service.allocate(allocateDto)).rejects.toThrow(
-				'Usuário não encontrado',
-			);
+			const result = await service.allocate(allocateDto);
+
+			expect(result.success).toBe(false);
+			expect(result.code).toBe(SeatAllocationCode.SEAT_USER_NOT_FOUND);
 		});
 
-		it('deve lançar BadRequestException se usuário já tem seat nesta licença', async () => {
+		it('deve retornar SEAT_ALREADY_EXISTS se usuário já tem seat nesta licença', async () => {
 			mockPrismaService.license.findUnique.mockResolvedValue(mockLicense);
 			mockPrismaService.user.findUnique.mockResolvedValue(mockUser);
 			mockPrismaService.seat.findFirst.mockResolvedValue(mockSeat);
 
-			await expect(service.allocate(allocateDto)).rejects.toThrow(
-				BadRequestException,
-			);
-			await expect(service.allocate(allocateDto)).rejects.toThrow(
-				'Usuário já possui um seat nesta licença',
-			);
+			const result = await service.allocate(allocateDto);
+
+			expect(result.success).toBe(false);
+			expect(result.code).toBe(SeatAllocationCode.SEAT_ALREADY_EXISTS);
 		});
 
 		it('deve permitir alocação se licenseType não é per seat', async () => {
@@ -187,7 +178,8 @@ describe('SeatService', () => {
 
 			const result = await service.allocate(allocateDto);
 
-			expect(result).toEqual(mockSeat);
+			expect(result.success).toBe(true);
+			expect(result.code).toBe(SeatAllocationCode.SEAT_ALLOCATED);
 		});
 	});
 

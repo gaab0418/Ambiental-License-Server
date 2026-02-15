@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { LicenseService } from './license.service';
 import { PrismaService } from '../../shared/prisma/prisma.service';
 import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { LicenseValidationCode } from './license.enums';
 
 const mockPrismaService = {
 	license: {
@@ -352,6 +353,7 @@ describe('LicenseService', () => {
 			);
 
 			expect(result.isValid).toBe(true);
+			expect(result.code).toBe(LicenseValidationCode.LICENSE_VALIDATED);
 			expect(result.license).toBeDefined();
 		});
 
@@ -361,6 +363,7 @@ describe('LicenseService', () => {
 			const result = await service.validateLicenseKey('INVALID-KEY');
 
 			expect(result.isValid).toBe(false);
+			expect(result.code).toBe(LicenseValidationCode.LICENSE_NOT_FOUND);
 			expect(result.reason).toBe('Licença não encontrada');
 		});
 
@@ -375,6 +378,7 @@ describe('LicenseService', () => {
 			);
 
 			expect(result.isValid).toBe(false);
+			expect(result.code).toBe(LicenseValidationCode.LICENSE_DELETED);
 			expect(result.reason).toBe('Licença foi removida');
 		});
 
@@ -389,6 +393,7 @@ describe('LicenseService', () => {
 			);
 
 			expect(result.isValid).toBe(false);
+			expect(result.code).toBe(LicenseValidationCode.LICENSE_INACTIVE);
 			expect(result.reason).toBe('Licença está inativa');
 		});
 
@@ -403,6 +408,9 @@ describe('LicenseService', () => {
 			);
 
 			expect(result.isValid).toBe(false);
+			expect(result.code).toBe(
+				LicenseValidationCode.LICENSE_ORGANIZATION_INACTIVE,
+			);
 			expect(result.reason).toBe('Organização está inativa');
 		});
 
@@ -417,6 +425,7 @@ describe('LicenseService', () => {
 			);
 
 			expect(result.isValid).toBe(false);
+			expect(result.code).toBe(LicenseValidationCode.LICENSE_EXPIRED);
 			expect(result.reason).toBe('Licença expirada');
 		});
 

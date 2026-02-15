@@ -9,6 +9,7 @@ import {
 	UseGuards,
 	HttpCode,
 	HttpStatus,
+	HttpException,
 } from '@nestjs/common';
 import {
 	ApiBearerAuth,
@@ -23,9 +24,25 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
-import { SeatService, SeatPaginationParams } from './seat.service';
+import { SeatService } from './seat.service';
+import { SeatAllocationCode } from './license.enums';
+import { SeatPaginationParams } from './license.interfaces';
 import { CreateSeatDto } from './dto/create-seat.dto';
 import type { User } from '@prisma/client';
+
+/** Mapeia cada code de falha para o HTTP status correspondente */
+const ALLOCATION_ERROR_STATUS: Record<
+	Exclude<SeatAllocationCode, SeatAllocationCode.SEAT_ALLOCATED>,
+	HttpStatus
+> = {
+	[SeatAllocationCode.LICENSE_NOT_FOUND]: HttpStatus.NOT_FOUND,
+	[SeatAllocationCode.LICENSE_DELETED]: HttpStatus.NOT_FOUND,
+	[SeatAllocationCode.LICENSE_INACTIVE]: HttpStatus.BAD_REQUEST,
+	[SeatAllocationCode.LICENSE_EXPIRED]: HttpStatus.BAD_REQUEST,
+	[SeatAllocationCode.LICENSE_SEATS_EXCEEDED]: HttpStatus.BAD_REQUEST,
+	[SeatAllocationCode.SEAT_USER_NOT_FOUND]: HttpStatus.NOT_FOUND,
+	[SeatAllocationCode.SEAT_ALREADY_EXISTS]: HttpStatus.CONFLICT,
+};
 
 @ApiTags('Seats')
 @Controller('licenses/:licenseId/seats')
@@ -72,14 +89,36 @@ export class SeatController {
 		status: 404,
 		description: 'Licença ou usuário não encontrado',
 	})
+	@ApiResponse({
+		status: 409,
+		description: 'Usuário já possui seat nesta licença',
+	})
 	async allocate(
 		@Param('licenseId') licenseId: string,
 		@Body() dto: Omit<CreateSeatDto, 'licenseId'>,
 	) {
-		return this.seatService.allocate({
+		const result = await this.seatService.allocate({
 			...dto,
 			licenseId,
 		});
+
+		if (!result.success) {
+			const status =
+				ALLOCATION_ERROR_STATUS[
+					result.code as Exclude<SeatAllocationCode, 'SEAT_ALLOCATED'>
+				] ?? HttpStatus.BAD_REQUEST;
+
+			throw new HttpException(
+				{
+					statusCode: status,
+					message: result.reason,
+					code: result.code,
+				},
+				status,
+			);
+		}
+
+		return result;
 	}
 
 	@Get(':seatId')
